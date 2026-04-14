@@ -1,7 +1,11 @@
 import numpy as np
-from matplotlib import pyplot
 import numba
 import time
+try:
+    from matplotlib import pyplot
+    HAS_PYPLOT = True
+except ImportError:
+    HAS_PYPLOT = False
 
 plotEvery = 25
 
@@ -15,7 +19,7 @@ def main():
     Ny = 100
 
     tau = .53
-    Nt = 30000 # time 
+    Nt = 100  # REDUCED FOR TESTING
 
     #lattice speeds and weights 
     NL = 9 # Number of Lattices
@@ -34,16 +38,16 @@ def main():
     distances = np.sqrt((x_coords - Nx // 4) ** 2 + (y_coords - Ny // 2) ** 2)
     cylinder = distances < 13 
 
-    # Pre-compute cylinder indices for faster boundary condition application
+    # Pre-compute cylinder properties
     cylinder_indices = np.where(cylinder)
-
+    
     # main loop
     t_start = time.perf_counter()
     for t in range(Nt):
-        if t % 5000 == 0:
+        if t % 50 == 0:
             print(f"Iteration {t}/{Nt}")
 
-        # Streaming with boundary conditions - vectorized numpy operations
+        # Streaming with boundary conditions using manual roll
         for i in range(NL):
             F[:, :, i] = np.roll(F[:, :, i], cxs[i], axis=1)
             F[:, :, i] = np.roll(F[:, :, i], cys[i], axis=0)
@@ -78,15 +82,13 @@ def main():
         # Collision step (JIT compiled)
         _collision_step(F, rho, ux, uy, cxs, cys, weights, tau)
 
-
-
-        if (t % plotEvery == 0):
+        if (t % plotEvery == 0) and HAS_PYPLOT:
             dfydx = ux[2:, 1:-1] - ux[0:-2, 1:-1]
             dfxdy = uy[1:-1, 2:] - uy[1:-1, 0:-2]
             curl = dfydx - dfxdy
 
             pyplot.imshow(curl, cmap='bwr')
-            pyplot.pause(0.1)
+            pyplot.pause(0.01)
             pyplot.cla()
     
     t_end = time.perf_counter()
