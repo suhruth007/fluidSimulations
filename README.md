@@ -6,11 +6,14 @@ A high-performance Python implementation of the 2D Lattice Boltzmann Method (LBM
 
 ## Features
 
+- **Interactive GUI**: Tkinter-based interface for easy simulation control and parameter adjustment
 - **Lattice Boltzmann Method (D2Q9)**: Accurate CFD simulation using the discrete Boltzmann equation
 - **Cylinder Wake Simulation**: Models realistic fluid behavior around obstacles
 - **No-Slip Boundary Conditions**: Bounce-back boundary condition on cylinder surface
-- **Vorticity Visualization**: Real-time visualization of flow patterns using matplotlib
+- **Multi-Colormap Visualization**: Real-time visualization with 7 color scheme options (bwr, hot, cool, viridis, plasma, twilight, RdYlBu)
 - **High Performance**: Numba JIT compilation + vectorized NumPy operations
+- **Responsive Threading**: Background simulation execution keeps UI responsive
+- **Live Progress Tracking**: Real-time iteration counter and performance metrics
 - **Production Ready**: Optimized code suitable for extended simulations
 
 ## Quick Start
@@ -28,19 +31,50 @@ cd fluidSimulations
 pip install numpy matplotlib numba
 ```
 
+> **Note**: tkinter (GUI framework) is included with standard Python installations. If missing on Linux, install via `sudo apt install python3-tk`
+
 ### Running the Simulation
 
 ```bash
 python main.py
 ```
 
-The simulation will:
-- Initialize a 400×100 lattice with a cylindrical obstacle
-- Run 30,000 timesteps of fluid dynamics
-- Display vorticity (curl of velocity) visualization every 25 steps
-- Print performance metrics (runtime, ms per iteration)
+The program launches an **interactive GUI** for easy control of the simulation:
 
-**Expected Runtime**: ~14-18 minutes for full 30,000 iterations (with visualization)
+#### GUI Features
+
+![LBM Simulator GUI](image.png)
+
+**Simulation Controls:**
+- **Number of Iterations**: Spinbox input (100 - 1,000,000) with default of 30,000
+  - Adjust the total number of timesteps to run
+- **Color Scheme**: Dropdown selection with 7 visualization options
+  - Red-Blue (bwr) - optimized for vorticity
+  - Hot, Cool, RdYlBu, Viridis, Plasma, Twilight
+- **Start Simulation**: Launch the fluid dynamics computation
+- **Stop Simulation**: Halt execution at any time without losing progress
+- **Clear Plot**: Reset the visualization canvas
+
+**Real-time Visualization:**
+- Embedded matplotlib canvas shows vorticity field (curl of velocity) every 25 timesteps
+- Live iteration counter displaying current progress
+- Dynamic color bar for vorticity magnitude reference
+- Smooth animation of fluid dynamics as simulation progresses
+
+**Status Information:**
+- Current simulation state (Ready / Running / Complete)
+- Real-time progress indicator showing current/total iterations
+- Final performance metrics (total runtime, average ms/iteration)
+- Completion notification with detailed statistics
+
+#### Background Execution
+
+The simulation runs in a **background thread** to keep the GUI responsive:
+- UI remains interactive while simulation executes
+- Can adjust settings or halt simulation at any point
+- Progress updates automatically as computation proceeds
+
+**Expected Runtime**: ~14-18 minutes for 30,000 iterations with visualization enabled
 
 ## Parameters
 
@@ -49,9 +83,34 @@ Edit `main.py` to adjust simulation settings:
 ```python
 Nx = 400           # Grid width (lattice units)
 Ny = 100           # Grid height (lattice units)
-Nt = 30000         # Number of timesteps
 tau = 0.53         # Relaxation time (viscosity parameter)
 plotEvery = 25     # Visualization frequency
+```
+
+### GUI Parameter Control
+
+The interactive GUI provides an easy way to adjust simulation parameters without editing code:
+
+**Iterations (Through GUI):**
+- Use the spinbox to select iterations (100 - 1,000,000)
+- Default: 30,000 timesteps
+- Changes take effect when "Start Simulation" is clicked
+
+**Color Scheme (Through GUI):**
+- Select visualization colormap from dropdown menu before running
+- 7 professional colormaps available for different visualization preferences
+
+**Programmatic Parameter Changes:**
+
+To modify other parameters (grid size, relaxation time, etc.), edit the `run_simulation()` function in `main.py`:
+
+```python
+def run_simulation(Nt, colormap, update_callback, completion_callback):
+    # Space
+    Nx = 400           # Modify grid width
+    Ny = 100           # Modify grid height
+    tau = 0.53         # Modify relaxation time (viscosity)
+    # Changes here affect all subsequent simulations
 ```
 
 ### Domain Setup
@@ -166,14 +225,52 @@ def _collision_step(F, rho, ux, uy, cxs, cys, weights, tau):
 
 ## Advanced Usage
 
+### GUI vs Programmatic Control
+
+**Using the GUI (Recommended):**
+```bash
+python main.py
+```
+- Interactive parameter selection
+- Real-time progress monitoring
+- Live visualization with color scheme control
+- Easy stop/start functionality
+
+**Programmatic/Headless Mode:**
+
+For automated batch processing or remote execution, call the simulation functions directly:
+
+```python
+from main import run_simulation, COLOR_SCHEMES
+
+# Define update and completion callbacks
+def update_plot(curl_data, colormap, iteration, total):
+    # Save to disk instead of displaying
+    np.save(f'vorticity_t{iteration}.npy', curl_data)
+
+def on_complete(elapsed, total_iterations):
+    print(f"Completed {total_iterations} iterations in {elapsed:.2f}s")
+
+# Run without GUI
+run_simulation(
+    Nt=30000,
+    colormap=list(COLOR_SCHEMES.values())[0],
+    update_callback=update_plot,
+    completion_callback=on_complete
+)
+```
+
 ### Disabling Visualization (Speed up by ~20%)
 
-Comment out visualization block:
+Set up callbacks that don't render:
 ```python
-if (t % plotEvery == 0):
-    # Visualization code here - comment out for pure computation
+def no_op_callback(*args):
     pass
+
+run_simulation(10000, 'bwr', no_op_callback, no_op_callback)
 ```
+
+Or modify the GUI's `update_plot()` method to skip drawing for computational benchmarks.
 
 ### Batch Processing
 
