@@ -379,7 +379,7 @@ Contributions are welcome! Please:
 
 ## Citation
 
-If you use this code in research, please cite:
+If you use this code in research, please cite (not a big deal if you don't):
 
 ```bibtex
 @software{fluidSimulations2026,
