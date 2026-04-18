@@ -7,6 +7,13 @@ import time
 import tkinter as tk
 from tkinter import ttk, messagebox
 import threading
+try:
+    from scipy.fft import fft
+except ImportError:
+    # Fallback if scipy not available
+    from numpy.fft import fft
+import json
+from pathlib import Path
 
 plotEvery = 25
 STOP_SIMULATION = False
@@ -27,7 +34,7 @@ def distance(x1, y1, x2, y2):
     return np.sqrt((x2-x1)**2 + (y2-y1)**2)
 
 def run_simulation(Nt, colormap, update_callback, completion_callback):
-    """Run the LBM simulation with callbacks for GUI updates."""
+    """Run the LBM simulation with Phase 1 metrics tracking."""
     global STOP_SIMULATION
     STOP_SIMULATION = False
     
@@ -56,6 +63,15 @@ def run_simulation(Nt, colormap, update_callback, completion_callback):
 
     # Pre-compute cylinder indices for faster boundary condition application
     cylinder_indices = np.where(cylinder)
+    
+    # PHASE 1: Initialize metrics tracker
+    metrics = MetricsTracker()
+    U_ref = 0.1
+    D = 26
+    
+    # Monitor point for vorticity (wake location)
+    monitor_x = Nx // 4 + 40
+    monitor_y = Ny // 2
 
     # main loop
     t_start = time.perf_counter()
@@ -101,6 +117,22 @@ def run_simulation(Nt, colormap, update_callback, completion_callback):
         # Collision step (JIT compiled)
         _collision_step(F, rho, ux, uy, cxs, cys, weights, tau)
 
+        # PHASE 1: Compute metrics every 50 iterations
+        if t % 50 == 0:
+            # Compute drag and lift
+            cd, fx = compute_drag_coefficient(F, cylinder_indices, rho, ux, uy, cxs, cys, weights, D, U_ref)
+            cl, fy = compute_lift_coefficient(F, cylinder_indices, rho, ux, uy, cxs, cys, weights, D, U_ref)
+            
+            # Compute vorticity at monitor point
+            vorticity_point = ux[monitor_y+1, monitor_x] - ux[monitor_y-1, monitor_x] - \
+                             (uy[monitor_y, monitor_x+1] - uy[monitor_y, monitor_x-1])
+            
+            # Compute kinetic energy and enstrophy
+            ke = 0.5 * np.sum(rho * (ux**2 + uy**2)) / np.sum(rho)
+            enstrophy = 0.5 * np.sum((uy[1:, :-1] - uy[:-1, :-1])**2 + (ux[:-1, 1:] - ux[:-1, :-1])**2) / np.sum(rho)
+            
+            metrics.record(t, cd, cl, vorticity_point, ke, enstrophy)
+
         # Update GUI every plotEvery iterations
         if (t % plotEvery == 0):
             dfydx = ux[2:, 1:-1] - ux[0:-2, 1:-1]
@@ -114,7 +146,25 @@ def run_simulation(Nt, colormap, update_callback, completion_callback):
     print(f"\nTotal runtime: {elapsed:.2f} seconds")
     print(f"Average per iteration: {elapsed / max(t, 1) * 1000:.2f} ms")
     
-    completion_callback(elapsed, t)
+    # PHASE 1: Compute and display Strouhal number
+    st, f_dom = metrics.compute_strouhal(dt=1.0, U_ref=U_ref, D=D)
+    stats = metrics.get_statistics()
+    
+    print(f"\n=== PHASE 1 METRICS ===")
+    print(f"Drag Coefficient (Cd):  {stats['cd_mean']:.4f} ± {stats['cd_std']:.4f}")
+    print(f"Lift Coefficient (Cl):  {stats['cl_mean']:.4f} ± {stats['cl_std']:.4f}")
+    print(f"Strouhal Number (St):   {st:.4f}")
+    print(f"Dominant Frequency:     {f_dom:.4f} Hz")
+    print(f"Mean Kinetic Energy:    {np.mean(metrics.kinetic_energy):.6f}")
+    print(f"\nBENCHMARK COMPARISON (Re=40):")
+    print(f"Expected Cd ≈ 1.465  | Your result: {stats['cd_mean']:.4f} | Error: {abs(stats['cd_mean']-1.465)/1.465*100:.2f}%")
+    
+    # Save metrics
+    metrics.save_metrics('phase1_metrics.json')
+    print(f"\nMetrics saved to phase1_metrics.json")
+    
+    completion_callback(elapsed, t, metrics)
+
 
 
 @numba.jit(nopython=True)
@@ -132,6 +182,296 @@ def _collision_step(F, rho, ux, uy, cxs, cys, weights, tau):
                     1.0 + 3.0 * cu + 4.5 * cu * cu - 1.5 * (ux[y, x] * ux[y, x] + uy[y, x] * uy[y, x])
                 )
                 F[y, x, i] += -(1.0 / tau) * (F[y, x, i] - Feq)
+
+
+# ============================================================================
+# PHASE 1: CORE PHYSICAL METRICS
+# ============================================================================
+
+def compute_equilibrium(rho, ux, uy, cxs, cys, weights):
+    """Compute equilibrium distribution f_eq."""
+    Ny, Nx = rho.shape
+    NL = len(weights)
+    f_eq = np.zeros((Ny, Nx, NL))
+    
+    for i in range(NL):
+        cx, cy, w = cxs[i], cys[i], weights[i]
+        cu = cx * ux + cy * uy
+        u_sq = ux**2 + uy**2
+        f_eq[:, :, i] = rho * w * (1.0 + 3.0*cu + 4.5*cu*cu - 1.5*u_sq)
+    
+    return f_eq
+
+
+def compute_drag_coefficient(F, cylinder_indices, rho, ux, uy, cxs, cys, weights, D=26, U_ref=0.1):
+    """
+    PHASE 1: Compute drag coefficient using momentum exchange method.
+    
+    This is the preferred method for LBM - exploits natural structure of non-equilibrium stress.
+    C_d = F_drag / (0.5 * rho * U_ref^2 * A)
+    
+    Args:
+        F: Distribution function [Ny, Nx, 9]
+        cylinder_indices: Indices of cylinder cells
+        rho, ux, uy: Macroscopic variables
+        cxs, cys: Lattice velocity components
+        weights: Lattice weights
+        D: Cylinder diameter in lattice units
+        U_ref: Reference velocity (inlet velocity)
+    
+    Returns:
+        Cd: Drag coefficient (dimensionless)
+    """
+    cs_squared = 1.0 / 3.0  # Speed of sound squared for D2Q9
+    
+    # Compute equilibrium and non-equilibrium distributions
+    f_eq = compute_equilibrium(rho, ux, uy, cxs, cys, weights)
+    f_neq = F - f_eq
+    
+    # Sum non-equilibrium stress on cylinder nodes (momentum exchange method)
+    F_x = 0.0
+    F_y = 0.0
+    
+    for idx in range(len(cylinder_indices[0])):
+        y, x = cylinder_indices[0][idx], cylinder_indices[1][idx]
+        for i in range(9):
+            F_x += f_neq[y, x, i] * cxs[i]
+            F_y += f_neq[y, x, i] * cys[i]
+    
+    F_x *= cs_squared
+    
+    # Compute dimensionless drag coefficient
+    rho_ref = 1.0
+    denom = 0.5 * rho_ref * U_ref**2 * D
+    
+    if denom != 0:
+        Cd = F_x / denom
+    else:
+        Cd = 0.0
+    
+    return Cd, F_x
+
+
+def compute_lift_coefficient(F, cylinder_indices, rho, ux, uy, cxs, cys, weights, D=26, U_ref=0.1):
+    """
+    PHASE 1: Compute lift coefficient from transverse force.
+    
+    Args:
+        Same as compute_drag_coefficient
+    
+    Returns:
+        Cl: Lift coefficient (dimensionless)
+    """
+    cs_squared = 1.0 / 3.0
+    
+    f_eq = compute_equilibrium(rho, ux, uy, cxs, cys, weights)
+    f_neq = F - f_eq
+    
+    # Sum transverse force
+    F_y = 0.0
+    
+    for idx in range(len(cylinder_indices[0])):
+        y, x = cylinder_indices[0][idx], cylinder_indices[1][idx]
+        for i in range(9):
+            F_y += f_neq[y, x, i] * cys[i]
+    
+    F_y *= cs_squared
+    
+    # Compute lift coefficient
+    rho_ref = 1.0
+    denom = 0.5 * rho_ref * U_ref**2 * D
+    
+    if denom != 0:
+        Cl = F_y / denom
+    else:
+        Cl = 0.0
+    
+    return Cl, F_y
+
+
+def compute_strouhal_number(vorticity_history, dt=0.1, U_ref=0.1, D=26):
+    """
+    PHASE 1: Compute Strouhal number from vorticity time series.
+    
+    St = f * D / U_ref, where f is the dominant frequency in the wake
+    
+    Args:
+        vorticity_history: List of vorticity values at cylinder location
+        dt: Time step (in physical units)
+        U_ref: Reference velocity
+        D: Cylinder diameter
+    
+    Returns:
+        St: Strouhal number (dimensionless)
+        f_dominant: Dominant frequency (Hz)
+    """
+    if len(vorticity_history) < 100:
+        return 0.0, 0.0
+    
+    # Convert to numpy array and remove mean
+    data = np.array(vorticity_history[-2000:])  # Use last 2000 points for frequency analysis
+    data = data - np.mean(data)
+    
+    # Apply FFT
+    N = len(data)
+    fft_vals = np.abs(fft(data))
+    freqs = np.fft.fftfreq(N, dt)
+    
+    # Find dominant frequency (excluding DC component and Nyquist)
+    valid_idx = np.where((freqs > 0) & (freqs < 0.5/dt))[0]
+    if len(valid_idx) == 0:
+        return 0.0, 0.0
+    
+    dominant_idx = valid_idx[np.argmax(fft_vals[valid_idx])]
+    f_dominant = np.abs(freqs[dominant_idx])
+    
+    # Compute Strouhal number
+    St = f_dominant * D / U_ref
+    
+    return St, f_dominant
+
+
+def export_to_vtk(filename, ux, uy, rho, vorticity, cylinder, Nx, Ny):
+    """
+    PHASE 1: Export simulation data to VTK format for ParaView visualization.
+    
+    Creates a VTK rectilinear grid with velocity, density, and vorticity fields.
+    """
+    try:
+        import vtk
+        from vtk.util import numpy_support
+    except ImportError:
+        print("VTK not available. Install with: pip install vtk")
+        return False
+    
+    # Create VTK rectilinear grid
+    grid = vtk.vtkRectilinearGrid()
+    grid.SetDimensions(Nx + 1, Ny + 1, 2)
+    
+    # Set coordinates
+    x_coords = vtk.vtkFloatArray()
+    for i in range(Nx + 1):
+        x_coords.InsertNextValue(float(i))
+    grid.SetXCoordinates(x_coords)
+    
+    y_coords = vtk.vtkFloatArray()
+    for i in range(Ny + 1):
+        y_coords.InsertNextValue(float(i))
+    grid.SetYCoordinates(y_coords)
+    
+    z_coords = vtk.vtkFloatArray()
+    for i in range(2):
+        z_coords.InsertNextValue(float(i))
+    grid.SetZCoordinates(z_coords)
+    
+    # Add velocity field
+    velocity = np.zeros((Ny, Nx, 3))
+    velocity[:, :, 0] = ux
+    velocity[:, :, 1] = uy
+    velocity_vtk = numpy_support.numpy_to_vtk(velocity.reshape(-1, 3))
+    velocity_vtk.SetNumberOfComponents(3)
+    velocity_vtk.SetName("Velocity")
+    grid.GetPointData().AddArray(velocity_vtk)
+    
+    # Add density field
+    rho_flat = rho.flatten()
+    rho_vtk = numpy_support.numpy_to_vtk(rho_flat)
+    rho_vtk.SetName("Density")
+    grid.GetPointData().AddArray(rho_vtk)
+    
+    # Add vorticity field
+    vort_flat = vorticity.flatten()
+    vort_vtk = numpy_support.numpy_to_vtk(vort_flat)
+    vort_vtk.SetName("Vorticity")
+    grid.GetPointData().AddArray(vort_vtk)
+    
+    # Add cylinder mask
+    cylinder_flat = cylinder.astype(np.float32).flatten()
+    cyl_vtk = numpy_support.numpy_to_vtk(cylinder_flat)
+    cyl_vtk.SetName("Cylinder")
+    grid.GetPointData().AddArray(cyl_vtk)
+    
+    # Write to file
+    writer = vtk.vtkRectilinearGridWriter()
+    writer.SetFileName(filename)
+    writer.SetInputData(grid)
+    writer.Write()
+    
+    return True
+
+
+def compute_pressure_coefficient(rho, U_ref=0.1, rho_ref=1.0):
+    """
+    PHASE 1: Compute pressure coefficient field.
+    Cp = (p - p_ref) / (0.5 * rho * U_ref^2)
+    """
+    cs_squared = 1.0 / 3.0
+    p = rho * cs_squared  # Pressure = rho * cs^2
+    p_ref = rho_ref * cs_squared
+    
+    denom = 0.5 * rho_ref * U_ref**2
+    Cp = (p - p_ref) / denom if denom != 0 else np.zeros_like(p)
+    
+    return Cp
+
+
+class MetricsTracker:
+    """Track Phase 1 metrics over simulation time."""
+    
+    def __init__(self):
+        self.time_steps = []
+        self.cd_values = []
+        self.cl_values = []
+        self.vorticity_signal = []
+        self.st_values = []
+        self.kinetic_energy = []
+        self.enstrophy = []
+    
+    def record(self, t, cd, cl, vort_point, ke, enst):
+        """Record metrics at time step t."""
+        self.time_steps.append(t)
+        self.cd_values.append(cd)
+        self.cl_values.append(cl)
+        self.vorticity_signal.append(vort_point)
+        self.kinetic_energy.append(ke)
+        self.enstrophy.append(enst)
+    
+    def compute_strouhal(self, dt=0.1, U_ref=0.1, D=26):
+        """Compute Strouhal number from recorded data."""
+        st, f = compute_strouhal_number(self.vorticity_signal, dt, U_ref, D)
+        return st, f
+    
+    def save_metrics(self, filename='metrics.json'):
+        """Save metrics to JSON file."""
+        data = {
+            'time_steps': self.time_steps,
+            'cd': self.cd_values,
+            'cl': self.cl_values,
+            'ke': self.kinetic_energy,
+            'enstrophy': self.enstrophy,
+        }
+        with open(filename, 'w') as f:
+            json.dump(data, f)
+    
+    def get_statistics(self):
+        """Get mean values after settling time."""
+        settle_idx = len(self.cd_values) // 2  # Skip first half as settling time
+        
+        if settle_idx >= len(self.cd_values):
+            return {
+                'cd_mean': 0, 'cd_std': 0,
+                'cl_mean': 0, 'cl_std': 0,
+            }
+        
+        cd_settled = np.array(self.cd_values[settle_idx:])
+        cl_settled = np.array(self.cl_values[settle_idx:])
+        
+        return {
+            'cd_mean': np.mean(cd_settled),
+            'cd_std': np.std(cd_settled),
+            'cl_mean': np.mean(cl_settled),
+            'cl_std': np.std(cl_settled),
+        }
 
 
 class LBMSimulatorGUI:
@@ -237,14 +577,27 @@ class LBMSimulatorGUI:
         self.progress_label.config(text=f"Progress: {iteration}/{total_iterations} iterations")
         self.root.update()
     
-    def simulation_complete(self, elapsed_time, total_iterations):
+    def simulation_complete(self, elapsed_time, total_iterations, metrics=None):
         """Called when simulation completes."""
         self.is_running = False
         self.start_button.config(state="normal")
         self.stop_button.config(state="disabled")
         self.status_label.config(text=f"Complete! (Total time: {elapsed_time:.2f}s, Avg: {elapsed_time/max(total_iterations,1)*1000:.2f}ms/iter)", foreground="blue")
-        messagebox.showinfo("Simulation Complete", 
-            f"Simulation completed!\n\nTotal time: {elapsed_time:.2f} seconds\nAverage per iteration: {elapsed_time/max(total_iterations,1)*1000:.2f} ms")
+        
+        # Prepare detailed message with Phase 1 metrics
+        msg = f"Simulation completed!\n\nTotal time: {elapsed_time:.2f} seconds\nAverage per iteration: {elapsed_time/max(total_iterations,1)*1000:.2f} ms"
+        
+        if metrics:
+            stats = metrics.get_statistics()
+            st, f = metrics.compute_strouhal()
+            msg += f"\n\n=== PHASE 1 METRICS ===\n"
+            msg += f"Drag Coefficient: {stats['cd_mean']:.4f} ± {stats['cd_std']:.4f}\n"
+            msg += f"Lift Coefficient: {stats['cl_mean']:.4f} ± {stats['cl_std']:.4f}\n"
+            msg += f"Strouhal Number: {st:.4f}\n"
+            msg += f"\nBenchmark (Re=40): Expected Cd ≈ 1.465"
+        
+        messagebox.showinfo("Simulation Complete", msg)
+
     
     def start_simulation(self):
         """Start the simulation in a separate thread."""
