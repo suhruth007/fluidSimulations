@@ -1,0 +1,150 @@
+# Development & Planning Documents
+COMPREHENSIVE_CFD_ROADMAP.md
+CFD_SOFTWARE_FEATURE_RESEARCH.md
+CFD_DEVELOPMENT_NAVIGATION.md
+DOCUMENTATION_INDEX.md
+ROADMAP_SUMMARY.txt
+DEVELOPMENT_NOTES.md
+ROADMAP.md
+TODO.md
+INTERNAL_*.md
+
+# Python Environment & Dependencies
+.venv/
+venv/
+env/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# IDE & Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# Python Runtime
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Data & Simulation Results
+*.npy
+*.npz
+*.hdf5
+*.h5
+*.dat
+*.csv
+simulation_results/
+sweep_results/
+checkpoints/
+output_data/
+tmp/
+temp/
+
+# Visualization & Output
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.mp4
+*.avi
+*.mov
+images/
+videos/
+plots/
+figures/
+
+# Build & Compilation (C++ CUDA)
+cpp/build/
+cpp/cuda/build/
+*.o
+*.a
+*.so
+*.exe
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# Jupyter Notebooks (local execution artifacts)
+.ipynb_checkpoints/
+*.ipynb_checkpoints/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+*.lnk
+.directory
+
+# Temporary files
+*.tmp
+*.bak
+*.backup
+*.log
+*.out
+*.old
+
+# Dependency lock files (optional - uncomment if using)
+# Pipfile.lock
+# poetry.lock
+# requirements-lock.txt
+
+# Large files
+*.tar.gz
+*.zip
+*.rar
+*.7z
+
+# Configuration files with sensitive data
+config_local.yaml
+settings_local.json
+.env
+.env.local
+
+# Test coverage
+htmlcov/
+.pytest_cache/
+.coverage_html/
+
+# Execution logs
+logs/
+*.log
+
+# Compiled documentation
+docs/_build/
+
+# OS backups
+$RECYCLE.BIN/
