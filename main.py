@@ -146,8 +146,8 @@ def run_simulation(Nt, colormap, update_callback, completion_callback):
     print(f"\nTotal runtime: {elapsed:.2f} seconds")
     print(f"Average per iteration: {elapsed / max(t, 1) * 1000:.2f} ms")
     
-    # PHASE 1: Compute and display Strouhal number
-    st, f_dom = metrics.compute_strouhal(dt=1.0, U_ref=U_ref, D=D)
+    # PHASE 1: Compute and display Strouhal number with quality metric
+    st, f_dom, quality = metrics.compute_strouhal(dt=1.0, U_ref=U_ref, D=D)
     stats = metrics.get_statistics()
     
     print(f"\n=== PHASE 1 METRICS ===")
@@ -155,15 +155,26 @@ def run_simulation(Nt, colormap, update_callback, completion_callback):
     print(f"Lift Coefficient (Cl):  {stats['cl_mean']:.4f} ± {stats['cl_std']:.4f}")
     print(f"Strouhal Number (St):   {st:.4f}")
     print(f"Dominant Frequency:     {f_dom:.4f} Hz")
+    print(f"Signal Quality (FFT):    {quality:.1%}")
     print(f"Mean Kinetic Energy:    {np.mean(metrics.kinetic_energy):.6f}")
-    print(f"\nBENCHMARK COMPARISON (Re=40):")
-    print(f"Expected Cd ≈ 1.465  | Your result: {stats['cd_mean']:.4f} | Error: {abs(stats['cd_mean']-1.465)/1.465*100:.2f}%")
+    
+    # Validation summary
+    cd_error = abs(stats['cd_mean']-1.465)/1.465*100
+    st_valid = 0.16 <= st <= 0.20
+    
+    print(f"\n=== BENCHMARK COMPARISON (Re=40) ===")
+    print(f"Cd: Expected ≈ 1.465  | Your result: {stats['cd_mean']:.4f} | Error: {cd_error:.2f}%")
+    print(f"St: Expected ≈ 0.17   | Your result: {st:.4f} | Valid: {'✓' if st_valid else '✗'}")
+    
+    if cd_error < 2 and st_valid and quality > 0.3:
+        print(f"\n✅ PHASE 1 VALIDATION SUCCESSFUL!")
     
     # Save metrics
     metrics.save_metrics('phase1_metrics.json')
     print(f"\nMetrics saved to phase1_metrics.json")
     
     completion_callback(elapsed, t, metrics)
+
 
 
 
@@ -291,7 +302,7 @@ def compute_lift_coefficient(F, cylinder_indices, rho, ux, uy, cxs, cys, weights
 
 def compute_strouhal_number(vorticity_history, dt=0.1, U_ref=0.1, D=26):
     """
-    PHASE 1: Compute Strouhal number from vorticity time series.
+    PHASE 1: Compute Strouhal number from vorticity time series using enhanced FFT.
     
     St = f * D / U_ref, where f is the dominant frequency in the wake
     
@@ -304,31 +315,47 @@ def compute_strouhal_number(vorticity_history, dt=0.1, U_ref=0.1, D=26):
     Returns:
         St: Strouhal number (dimensionless)
         f_dominant: Dominant frequency (Hz)
+        quality: Signal quality (0-1, higher = better resolution)
     """
     if len(vorticity_history) < 100:
-        return 0.0, 0.0
+        return 0.0, 0.0, 0.0
     
-    # Convert to numpy array and remove mean
-    data = np.array(vorticity_history[-2000:])  # Use last 2000 points for frequency analysis
+    # Use up to 4000 points for better frequency resolution
+    n_points = min(len(vorticity_history), 4000)
+    data = np.array(vorticity_history[-n_points:])
+    
+    # Remove mean and apply Hanning window (reduces spectral leakage)
     data = data - np.mean(data)
+    window = np.hanning(len(data))
+    data = data * window
     
     # Apply FFT
     N = len(data)
     fft_vals = np.abs(fft(data))
     freqs = np.fft.fftfreq(N, dt)
     
-    # Find dominant frequency (excluding DC component and Nyquist)
-    valid_idx = np.where((freqs > 0) & (freqs < 0.5/dt))[0]
-    if len(valid_idx) == 0:
-        return 0.0, 0.0
+    # Find dominant frequency (exclude DC and look in reasonable shedding range)
+    # For cylinder at Re~40, St~0.17, so f = St*U/D = 0.17*0.1/26 ~ 0.0006 Hz
+    # But we're in lattice units, so adjust search range
+    valid_idx = np.where((freqs > 0.0001) & (freqs < 0.1/dt))[0]
     
+    if len(valid_idx) == 0:
+        return 0.0, 0.0, 0.0
+    
+    # Find peak in valid range
     dominant_idx = valid_idx[np.argmax(fft_vals[valid_idx])]
     f_dominant = np.abs(freqs[dominant_idx])
+    
+    # Compute signal quality (peak vs background energy ratio)
+    peak_energy = fft_vals[dominant_idx]
+    background_energy = np.mean(fft_vals[valid_idx])
+    quality = min(peak_energy / (background_energy + 1e-10) / 10.0, 1.0)
     
     # Compute Strouhal number
     St = f_dominant * D / U_ref
     
-    return St, f_dominant
+    return St, f_dominant, quality
+
 
 
 def export_to_vtk(filename, ux, uy, rho, vorticity, cylinder, Nx, Ny):
@@ -437,9 +464,9 @@ class MetricsTracker:
         self.enstrophy.append(enst)
     
     def compute_strouhal(self, dt=0.1, U_ref=0.1, D=26):
-        """Compute Strouhal number from recorded data."""
-        st, f = compute_strouhal_number(self.vorticity_signal, dt, U_ref, D)
-        return st, f
+        """Compute Strouhal number from recorded data with quality metric."""
+        st, f, quality = compute_strouhal_number(self.vorticity_signal, dt, U_ref, D)
+        return st, f, quality
     
     def save_metrics(self, filename='metrics.json'):
         """Save metrics to JSON file."""
@@ -472,6 +499,31 @@ class MetricsTracker:
             'cl_mean': np.mean(cl_settled),
             'cl_std': np.std(cl_settled),
         }
+    
+    def check_convergence(self, tolerance=0.02):
+        """Check if simulation has converged (Cd within tolerance)."""
+        if len(self.cd_values) < 100:
+            return False, "Not enough data"
+        
+        # Compare second half to first half
+        split_idx = len(self.cd_values) // 2
+        cd_first = np.array(self.cd_values[:split_idx])
+        cd_second = np.array(self.cd_values[split_idx:])
+        
+        first_mean = np.mean(cd_first)
+        second_mean = np.mean(cd_second)
+        second_std = np.std(cd_second)
+        
+        # Check if std is within tolerance
+        is_converged = second_std < tolerance
+        
+        return is_converged, {
+            'first_half_mean': first_mean,
+            'second_half_mean': second_mean,
+            'second_half_std': second_std,
+            'change': abs(second_mean - first_mean) / max(abs(first_mean), 1e-10),
+        }
+
 
 
 class LBMSimulatorGUI:
