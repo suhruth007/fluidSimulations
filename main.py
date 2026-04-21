@@ -64,6 +64,11 @@ def run_simulation(Nt, colormap, update_callback, completion_callback):
     # Pre-compute cylinder indices for faster boundary condition application
     cylinder_indices = np.where(cylinder)
     
+    # PHASE 1: Create cylinder BOUNDARY mask for drag/lift (not volume!)
+    # Boundary: nodes at surface (distance 12-13)
+    cylinder_boundary = (distances >= 12) & (distances < 14)
+    cylinder_boundary_indices = np.where(cylinder_boundary)
+    
     # PHASE 1: Initialize metrics tracker
     metrics = MetricsTracker()
     U_ref = 0.1
@@ -119,9 +124,9 @@ def run_simulation(Nt, colormap, update_callback, completion_callback):
 
         # PHASE 1: Compute metrics every 50 iterations
         if t % 50 == 0:
-            # Compute drag and lift
-            cd, fx = compute_drag_coefficient(F, cylinder_indices, rho, ux, uy, cxs, cys, weights, D, U_ref)
-            cl, fy = compute_lift_coefficient(F, cylinder_indices, rho, ux, uy, cxs, cys, weights, D, U_ref)
+            # Compute drag and lift using BOUNDARY indices (not volume!)
+            cd, fx = compute_drag_coefficient(F, cylinder_boundary_indices, rho, ux, uy, cxs, cys, weights, D, U_ref)
+            cl, fy = compute_lift_coefficient(F, cylinder_boundary_indices, rho, ux, uy, cxs, cys, weights, D, U_ref)
             
             # Compute vorticity at monitor point
             vorticity_point = ux[monitor_y+1, monitor_x] - ux[monitor_y-1, monitor_x] - \
@@ -586,6 +591,41 @@ class LBMSimulatorGUI:
         
         ttk.Button(button_frame, text="Clear Plot", command=self.clear_plot).pack(side="left", padx=5)
         
+        # Phase 2: Surrogate Model Prediction Frame
+        prediction_frame = ttk.LabelFrame(self.root, text="Phase 2: Surrogate Model Prediction (Instant!)", padding=10)
+        prediction_frame.pack(fill="x", padx=10, pady=10)
+        
+        # Input fields for prediction
+        input_grid = ttk.Frame(prediction_frame)
+        input_grid.pack(fill="x", pady=5)
+        
+        # Reynolds number
+        ttk.Label(input_grid, text="Reynolds Number:", width=18).pack(side="left", padx=5)
+        self.re_var = tk.StringVar(value="40")
+        ttk.Entry(input_grid, textvariable=self.re_var, width=12).pack(side="left", padx=2)
+        ttk.Label(input_grid, text="(20-100)", foreground="gray").pack(side="left")
+        
+        # Cylinder radius
+        ttk.Label(input_grid, text="Cylinder Radius:", width=18).pack(side="left", padx=5)
+        self.radius_var = tk.StringVar(value="13")
+        ttk.Entry(input_grid, textvariable=self.radius_var, width=12).pack(side="left", padx=2)
+        ttk.Label(input_grid, text="(8-18)", foreground="gray").pack(side="left")
+        
+        # Inlet velocity
+        ttk.Label(input_grid, text="Inlet Velocity:", width=18).pack(side="left", padx=5)
+        self.ux_var = tk.StringVar(value="0.1")
+        ttk.Entry(input_grid, textvariable=self.ux_var, width=12).pack(side="left", padx=2)
+        ttk.Label(input_grid, text="(0.05-0.15)", foreground="gray").pack(side="left")
+        
+        # Prediction button and results
+        button_result_frame = ttk.Frame(prediction_frame)
+        button_result_frame.pack(fill="x", pady=5)
+        
+        ttk.Button(button_result_frame, text="Predict Aerodynamics", command=self.predict_aerodynamics).pack(side="left", padx=5)
+        
+        self.prediction_result = ttk.Label(button_result_frame, text="", foreground="blue", font=("Courier", 10))
+        self.prediction_result.pack(side="left", padx=10, fill="x", expand=True)
+        
         # Status Frame
         status_frame = ttk.LabelFrame(self.root, text="Status", padding=10)
         status_frame.pack(fill="x", padx=10, pady=5)
@@ -641,14 +681,16 @@ class LBMSimulatorGUI:
         
         if metrics:
             stats = metrics.get_statistics()
-            st, f = metrics.compute_strouhal()
+            st, f, quality = metrics.compute_strouhal()
             msg += f"\n\n=== PHASE 1 METRICS ===\n"
             msg += f"Drag Coefficient: {stats['cd_mean']:.4f} ± {stats['cd_std']:.4f}\n"
             msg += f"Lift Coefficient: {stats['cl_mean']:.4f} ± {stats['cl_std']:.4f}\n"
             msg += f"Strouhal Number: {st:.4f}\n"
+            msg += f"FFT Quality: {quality:.1%}\n"
             msg += f"\nBenchmark (Re=40): Expected Cd ≈ 1.465"
         
         messagebox.showinfo("Simulation Complete", msg)
+
 
     
     def start_simulation(self):
@@ -693,6 +735,75 @@ class LBMSimulatorGUI:
         self.ax.set_ylabel("Y")
         self.canvas.draw()
         self.progress_label.config(text="")
+    
+    def predict_aerodynamics(self):
+        """Predict aerodynamics using surrogate model (Phase 2)."""
+        try:
+            # Parse inputs
+            re = float(self.re_var.get())
+            radius = float(self.radius_var.get())
+            ux = float(self.ux_var.get())
+            
+            # Validate ranges
+            if not (20 <= re <= 100):
+                messagebox.showwarning("Warning", "Reynolds number should be 20-100 for best accuracy")
+            if not (8 <= radius <= 18):
+                messagebox.showwarning("Warning", "Radius should be 8-18 for best accuracy")
+            if not (0.05 <= ux <= 0.15):
+                messagebox.showwarning("Warning", "Velocity should be 0.05-0.15 for best accuracy")
+            
+            # Load and use surrogate model
+            try:
+                import torch
+                from surrogate_model import AerodynamicSurrogate
+                import json
+                
+                # Load model
+                device = 'cuda' if torch.cuda.is_available() else 'cpu'
+                model = AerodynamicSurrogate()
+                model.load_state_dict(torch.load('best_surrogate_model.pth', map_location=device))
+                model.to(device)
+                
+                # Load normalization parameters
+                with open('surrogate_metadata.json', 'r') as f:
+                    metadata = json.load(f)
+                    norm_params = metadata['norm_params']
+                
+                # Prepare input
+                import numpy as np
+                X_input = np.array([[re, radius, ux]])
+                X_norm = (X_input - np.array(norm_params['X_min'])) / (
+                    np.array(norm_params['X_max']) - np.array(norm_params['X_min']) + 1e-8
+                )
+                
+                # Predict
+                model.eval()
+                with torch.no_grad():
+                    y_pred_norm = model(torch.FloatTensor(X_norm).to(device)).cpu().numpy()
+                    y_pred = y_pred_norm * (np.array(norm_params['y_max']) - np.array(norm_params['y_min'])) + np.array(norm_params['y_min'])
+                
+                Cd, Cl_rms, St = y_pred[0]
+                
+                # Display results
+                result_text = f"Cd: {Cd:.4f} | Cl_rms: {Cl_rms:.4f} | St: {St:.4f}"
+                self.prediction_result.config(text=result_text, foreground="green")
+                
+                # Show detailed popup
+                msg = f"Surrogate Model Prediction\n\nInput:\n  Re = {re}\n  Radius = {radius}\n  Ux = {ux}\n\nOutput:\n  Cd = {Cd:.4f}\n  Cl (RMS) = {Cl_rms:.4f}\n  St = {St:.4f}\n\nNote: This is ~20 minutes faster than LBM!"
+                messagebox.showinfo("Prediction Result", msg)
+                
+            except FileNotFoundError:
+                result_text = "Model not found. Train first: python surrogate_model.py --train"
+                self.prediction_result.config(text=result_text, foreground="red")
+                messagebox.showerror("Error", "Surrogate model not found.\n\nTrain first:\npython surrogate_model.py --train --data training_data.h5")
+            except Exception as e:
+                result_text = f"Error: {str(e)}"
+                self.prediction_result.config(text=result_text, foreground="red")
+                messagebox.showerror("Error", f"Prediction failed: {str(e)}")
+        
+        except ValueError:
+            messagebox.showerror("Invalid Input", "Please enter valid numbers for all fields")
+
 
 
 def main():
