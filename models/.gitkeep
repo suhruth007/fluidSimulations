@@ -1,0 +1,8 @@
+"""
+Placeholder file to ensure models/ directory is tracked by git.
+Remove this file once actual model files exist.
+
+Location: Store trained neural network weights here
+- surrogate_v1.pth: PyTorch model weights
+- metadata/surrogate_v1.json: Normalization parameters and training info
+"""

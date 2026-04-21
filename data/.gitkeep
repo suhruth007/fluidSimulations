@@ -1,0 +1,9 @@
+"""
+Placeholder file to ensure data/ directory is tracked by git.
+Remove this file once actual data files exist.
+
+Location: Store generated training datasets here
+- training_data.h5: Main training dataset (HDF5 format)
+- test_samples.h5: Test set for validation
+- benchmarks/: Reference data and literature comparisons
+"""

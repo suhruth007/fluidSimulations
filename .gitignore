@@ -1,29 +1,23 @@
-# Development & Planning Documents
-COMPREHENSIVE_CFD_ROADMAP.md
-CFD_SOFTWARE_FEATURE_RESEARCH.md
-CFD_DEVELOPMENT_NAVIGATION.md
-DOCUMENTATION_INDEX.md
-ROADMAP_SUMMARY.txt
-PHASE1_IMPLEMENTATION_GUIDE.md
-PHASE1_QUICK_START.md
-PHASE1_STATUS.md
-PHASE1_API_REFERENCE.md
-PHASE1_COMPLETE_SUMMARY.md
-PHASE1_QUICK_REFERENCE.md
-PHASE1_WEEK2_GUIDE.md
-PHASE1_WEEK2_SUMMARY.md
-PHASE1_DEBUG_REPORT.md
-PHASE1_BENCHMARK_DATA.txt
-DEVELOPMENT_NOTES.md
-ROADMAP.md
-TODO.md
-INTERNAL_*.md
+# ============================================
+# PYTHON & DEPENDENCIES
+# ============================================
 
-# Python Environment & Dependencies
+# Virtual environments
 .venv/
 venv/
 env/
 ENV/
+env.bak/
+venv.bak/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Distribution / packaging
 build/
 develop-eggs/
 dist/
@@ -36,11 +30,20 @@ parts/
 sdist/
 var/
 wheels/
+pip-wheel-metadata/
 *.egg-info/
 .installed.cfg
 *.egg
+MANIFEST
 
-# IDE & Editor
+# Package management
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ============================================
+# IDE & EDITOR
+# ============================================
+
 .vscode/
 .idea/
 *.swp
@@ -51,40 +54,74 @@ wheels/
 .settings/
 *.sublime-project
 *.sublime-workspace
+.vscode/
+.DS_Store
 
-# Python Runtime
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-pip-log.txt
-pip-delete-this-directory.txt
+# ============================================
+# TESTING & COVERAGE
+# ============================================
+
 .tox/
 .coverage
 .coverage.*
 .cache
+.pytest_cache/
 nosetests.xml
 coverage.xml
 *.cover
 .hypothesis/
-.pytest_cache/
+htmlcov/
 
-# Data & Simulation Results
+# ============================================
+# DATA FILES (LARGE, GENERATED)
+# ============================================
+
+# HDF5 training data
+*.h5
+*.hdf5
+data/training_data.h5
+data/test_samples.h5
+data/benchmarks/*.h5
+
+# NumPy/raw data
 *.npy
 *.npz
-*.hdf5
-*.h5
 *.dat
-*.csv
-simulation_results/
-sweep_results/
-checkpoints/
-output_data/
-tmp/
-temp/
 
-# Visualization & Output
+# CSV exports
+*.csv
+
+# ============================================
+# MODEL FILES (LARGE, GENERATED)
+# ============================================
+
+# PyTorch models
+*.pth
+*.pt
+models/surrogate_*.pth
+models/flow_predictor_*.pth
+best_surrogate_model.pth
+best_flow_predictor.pth
+
+# Model metadata
+models/metadata/*.json
+surrogate_metadata.json
+training_history.json
+
+# ============================================
+# GENERATED METRICS & RESULTS
+# ============================================
+
+phase1_metrics.json
+results/
+output_data/
+checkpoints/
+sweep_results/
+
+# ============================================
+# VISUALIZATION & OUTPUT
+# ============================================
+
 *.png
 *.jpg
 *.jpeg
@@ -96,58 +133,110 @@ images/
 videos/
 plots/
 figures/
+surrogate_validation.png
+phase1_analysis.png
 
-# Build & Compilation (C++ CUDA)
+# ============================================
+# JUPYTER NOTEBOOKS
+# ============================================
+
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+# Note: Keep .ipynb files in repo, ignore checkpoints only
+
+# ============================================
+# OS-SPECIFIC FILES
+# ============================================
+
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*.lnk
+.directory
+.AppleDouble
+.LSOverride
+
+# ============================================
+# TEMPORARY & BACKUP FILES
+# ============================================
+
+*.tmp
+*.bak
+*.backup
+*.old
+*.log
+*.out
+*~
+tmp/
+temp/
+scratch/
+
+# ============================================
+# ARCHIVE FILES
+# ============================================
+
+*.tar.gz
+*.zip
+*.rar
+*.7z
+*.tar
+*.gz
+
+# ============================================
+# CONFIGURATION & SECRETS
+# ============================================
+
+.env
+.env.local
+config_local.yaml
+settings_local.json
+secrets.json
+credentials.json
+
+# ============================================
+# BUILD & COMPILATION
+# ============================================
+
 cpp/build/
 cpp/cuda/build/
 *.o
 *.a
-*.so
-*.exe
 CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
 Makefile
 
-# Jupyter Notebooks (local execution artifacts)
-.ipynb_checkpoints/
-*.ipynb_checkpoints/
+# ============================================
+# DEVELOPMENT & PLANNING (OLD DOCS)
+# ============================================
 
-# OS-specific files
-.DS_Store
-Thumbs.db
-*.lnk
-.directory
+COMPREHENSIVE_CFD_ROADMAP.md
+CFD_SOFTWARE_FEATURE_RESEARCH.md
+CFD_DEVELOPMENT_NAVIGATION.md
+DOCUMENTATION_INDEX.md
+ROADMAP_SUMMARY.txt
+PHASE1_IMPLEMENTATION_GUIDE.md
+PHASE1_STATUS.md
+PHASE1_COMPLETE_SUMMARY.md
+PHASE1_DEBUG_REPORT.md
+PHASE1_BENCHMARK_DATA.txt
+DEVELOPMENT_NOTES.md
+TODO.md
+INTERNAL_*.md
 
-# Temporary files
-*.tmp
-*.bak
-*.backup
-*.log
-*.out
-*.old
+# ============================================
+# MISCELLANEOUS
+# ============================================
 
-# Dependency lock files (optional - uncomment if using)
-# Pipfile.lock
-# poetry.lock
-# requirements-lock.txt
-
-# Large files
-*.tar.gz
-*.zip
-*.rar
-*.7z
-
-# Configuration files with sensitive data
-config_local.yaml
-settings_local.json
-.env
-.env.local
-
-# Test coverage
-htmlcov/
-.pytest_cache/
-.coverage_html/
+.ipynb_checkpoints
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
 
 # Execution logs
 logs/
