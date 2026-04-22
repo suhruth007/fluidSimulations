@@ -16,24 +16,25 @@
 - **System Architecture**: [ARCHITECTURE.md](ARCHITECTURE.md) (comprehensive)
 - **Development History**: [DEVELOPMENT_HISTORY.md](DEVELOPMENT_HISTORY.md) (JIRA-like tracker)
 - **Project Structure**: [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) (file organization)
+- **Phase 4 Guide**: [PHASE4_3D_LBM_GUIDE.md](PHASE4_3D_LBM_GUIDE.md) (3D implementation)
 - **API Reference**: [docs/API_REFERENCE.md](docs/API_REFERENCE.md)
 
 ### Documentation by Phase
 - **Phase 1** (LBM Simulator): [docs/PHASE1_GUIDE.md](docs/PHASE1_GUIDE.md)
 - **Phase 2** (ML Surrogates): See Phase 2 section below
 - **Phase 3** (Flow Prediction): [Planned](DEVELOPMENT_HISTORY.md#phase-3)
-- **Phase 4** (Advanced Models): [Planned](DEVELOPMENT_HISTORY.md#phase-4)
+- **Phase 4** (3D with CAD): [PHASE4_3D_LBM_GUIDE.md](PHASE4_3D_LBM_GUIDE.md) ⭐ **NEW**
 
 ---
 
 ## 🎯 Project Overview
 
-A **professional-grade CFD simulator** with integrated machine learning for aerodynamic analysis:
+A **professional-grade CFD simulator** with integrated machine learning and 3D CAD support:
 
 - ✅ **Phase 1**: D2Q9 Lattice Boltzmann Method (LBM) simulator with GUI
 - ✅ **Phase 2**: Neural network surrogate models for instant predictions (120,000× speedup)
 - 📋 **Phase 3**: Flow field prediction (CNN/LSTM) + parameter optimization (planned)
-- 🔲 **Phase 4**: Advanced models & 3D capabilities (future)
+- 🚀 **Phase 4**: 3D LBM (D3Q27) with STL/CAD file import (IN DEVELOPMENT)
 
 **Key Metrics**:
 | Metric | Value | Status |
@@ -41,7 +42,7 @@ A **professional-grade CFD simulator** with integrated machine learning for aero
 | Drag Coefficient Accuracy | ±0.01% | ✅ |
 | Prediction Speed | <10ms (vs 20 min LBM) | ✅ |
 | Speedup vs LBM | 120,000× | ✅ |
-| Model Accuracy (R²) | >0.98 | ✅ |
+| 3D Simulator | Phase 4 Ready | 🚀 |
 
 ---
 
@@ -263,17 +264,22 @@ for i, (Cd, Cl_rms, St) in enumerate(predictions):
 - ✅ Model serialization (.pth + .json)
 - ✅ Complete documentation
 
+### Phase 4: 3D LBM with CAD Import 🚀 (NEW!)
+- 🚀 D3Q27 Lattice Boltzmann Method (3D)
+- 🚀 STL/OBJ file import and parsing
+- 🚀 Automatic mesh voxelization (ray-casting)
+- 🚀 3D visualization (Tkinter + VTK ready)
+- 🚀 Arbitrary geometry support (any CAD shape)
+- 🚀 GUI for CAD import and voxel control
+- 🚀 Inlet/outlet/bounce-back boundary conditions
+- 📋 GPU acceleration (CuPy/CUDA) - coming soon
+- 📋 Advanced physics (turbulence, heat transfer) - planned
+
 ### Phase 3: Flow Prediction + Optimization (Planned 📋)
 - CNN/LSTM for field prediction (100-1000× speedup)
 - Genetic algorithm for design optimization
 - GPU acceleration (CuPy, CUDA)
 - Multi-objective optimization
-
-### Phase 4: Advanced Models (Future 🔲)
-- Variational Autoencoder (VAE)
-- 3D LBM (D3Q27)
-- Advanced physics (turbulence, heat transfer)
-- Coupled fluid-structure interaction
 
 ---
 
