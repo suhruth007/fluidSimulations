@@ -15,19 +15,30 @@ from pathlib import Path
 import threading
 import json
 
+# GPU support
+try:
+    import cupy as cp
+    GPU_AVAILABLE = True
+except ImportError:
+    GPU_AVAILABLE = False
+
 
 class LBM3DGUI:
-    """3D LBM Simulator GUI"""
+    """3D LBM Simulator GUI with GPU Acceleration"""
     
     def __init__(self, root):
         self.root = root
-        self.root.title("3D LBM Simulator - CAD Import")
-        self.root.geometry("1200x800")
+        self.root.title("3D LBM Simulator - GPU Accelerated (Phase 4.2)")
+        self.root.geometry("1400x900")
         
         self.mesh = None
         self.voxel_grid = None
         self.simulator = None
         self.running = False
+        self.use_gpu = GPU_AVAILABLE  # Default to GPU if available
+        
+        # GPU info
+        self.gpu_info = "GPU Available: ✅ YES (CuPy)" if GPU_AVAILABLE else "GPU Available: ❌ NO"
         
         self._create_widgets()
     
@@ -84,6 +95,27 @@ class LBM3DGUI:
         
         # Simulation parameters
         ttk.Label(left_frame, text="3. Simulation Parameters:").pack(anchor=tk.W, pady=(0, 10))
+        
+        # GPU selection (NEW!)
+        gpu_frame = ttk.LabelFrame(left_frame, text="⚡ GPU Acceleration", padding=5)
+        gpu_frame.pack(fill=tk.X, pady=(0, 15))
+        
+        ttk.Label(gpu_frame, text=self.gpu_info, foreground="green" if GPU_AVAILABLE else "red").pack(anchor=tk.W)
+        
+        self.use_gpu_var = tk.BooleanVar(value=GPU_AVAILABLE)
+        gpu_checkbox = ttk.Checkbutton(
+            gpu_frame, 
+            text="Use GPU if available",
+            variable=self.use_gpu_var,
+            state=tk.NORMAL if GPU_AVAILABLE else tk.DISABLED,
+            command=self._on_gpu_toggle
+        )
+        gpu_checkbox.pack(anchor=tk.W, pady=(5, 0))
+        
+        # Performance estimate
+        speedup_text = "Expected speedup: 10-100× (RTX 4090)" if GPU_AVAILABLE else "CPU only: No GPU speedup"
+        self.speedup_label = ttk.Label(gpu_frame, text=speedup_text, foreground="blue")
+        self.speedup_label.pack(anchor=tk.W, pady=(0, 5))
         
         # Reynolds number
         ttk.Label(left_frame, text="Reynolds Number:").pack(anchor=tk.W)
@@ -355,25 +387,49 @@ Ready for simulation!
         thread.start()
     
     def _run_simulation_thread(self):
-        """Background simulation thread"""
+        """Background simulation thread with GPU support"""
         try:
-            from lbm_3d import LBM3D
+            # Import appropriate simulator (GPU or CPU)
+            if self.use_gpu_var.get() and GPU_AVAILABLE:
+                from lbm_3d_gpu import LBM3DGPU
+                SimulatorClass = LBM3DGPU
+                device_name = "GPU (CuPy + CUDA)"
+            else:
+                from lbm_3d import LBM3D
+                SimulatorClass = LBM3D
+                device_name = "CPU (NumPy)"
             
             reynolds = self.reynolds_var.get()
             velocity = self.velocity_var.get()
             num_steps = self.steps_var.get()
             
             # Create simulator
-            self.simulator = LBM3D(self.voxel_grid, reynolds=reynolds, inlet_velocity=velocity)
+            if self.use_gpu_var.get():
+                self.simulator = SimulatorClass(
+                    self.voxel_grid,
+                    reynolds=reynolds,
+                    inlet_velocity=velocity,
+                    use_gpu=True,
+                    verbose=False
+                )
+            else:
+                self.simulator = SimulatorClass(
+                    self.voxel_grid,
+                    reynolds=reynolds,
+                    inlet_velocity=velocity
+                )
             
             info = f"""
 3D LBM SIMULATION RUNNING
 {'=' * 60}
 
+Device: ⚡ {device_name}
+
 Parameters:
   Reynolds: {reynolds}
   Inlet velocity: {velocity}
   Grid: {self.voxel_grid.shape[0]}×{self.voxel_grid.shape[1]}×{self.voxel_grid.shape[2]}
+  Cells: {np.prod(self.voxel_grid.shape):,}
 
 Simulation progress:
 """
@@ -448,6 +504,20 @@ NEXT STEPS:
         self.running = False
         self.pause_button.config(state=tk.DISABLED)
         self.run_button.config(state=tk.NORMAL)
+    
+    def _on_gpu_toggle(self):
+        """Handle GPU checkbox toggle"""
+        self.use_gpu = self.use_gpu_var.get()
+        if self.use_gpu and GPU_AVAILABLE:
+            self.speedup_label.config(
+                text="Expected speedup: 10-100× (GPU selected)",
+                foreground="green"
+            )
+        else:
+            self.speedup_label.config(
+                text="Running on CPU (GPU disabled)",
+                foreground="orange"
+            )
 
 
 def main():
